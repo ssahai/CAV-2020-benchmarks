@@ -1,0 +1,587 @@
+module common 
+{
+    /*********************************  TYPES  ******************************************/
+
+    type block_t            = integer;                                   // uninterpreted type to represent block
+    type leaf_t             = integer;              // indexes of leaves
+    type server_address_t;              // index in ORAM (server address)
+    type data_t;                                    // uninterpreted type to represent data
+    type stash_index_t      = integer;              // index of stash
+    type server_entry_t     = record {
+                                block : block_t, 
+                                data  : data_t,
+                                dummy : boolean 
+                              };
+            
+    type stash_entry_t      = record { 
+                                block : block_t, 
+                                data  : data_t, 
+                                valid : boolean
+                              };
+    type bucket_t           = [bv2] server_entry_t; // bucket of size 4
+    
+    type path_t             = [integer] server_address_t;
+    
+    /*********************************  FUNCTIONS  ******************************************/
+    
+    function init_accessed_leaf_value() : server_address_t;
+    function path        (leaf : leaf_t, level : integer) : server_address_t;
+    function access_path (leaf : leaf_t) : path_t;
+    
+}
+
+module pathoram
+{
+    type *      = common.*;
+    function *  = common.*;
+
+    const N                 : integer;              // number of data blocks
+    const LEVELS_ORAM       : integer;              // number of levels in ORAM 
+    const LEAVES_ORAM       : integer;              // number of leaves in ORAM
+    const STASH_SIZE        : integer;              // size of stash
+
+    /******************************  VARIABLES  ******************************************/
+    
+    /*******************  
+     *   CLIENT SIDE   *
+     *******************/
+    
+    // Position Map
+    output pmap             : [ block_t] leaf_t;    
+    
+    // Stash
+    var stash               : [ stash_index_t] stash_entry_t;   
+    var current_stash_index : stash_index_t;  
+    var stash_overflow      : boolean;
+    var reading_error       : boolean;
+    
+    var initialized         : boolean;
+
+    /*******************  
+     *   SERVER SIDE   *
+     *******************/
+    
+    // ORAM
+    var oram                : [ server_address_t] bucket_t;
+//    var         oram        : [ server_address_t] server_entry_t;
+
+
+    /********************************
+     *   Model Inputs and Outputs   *
+     ********************************/
+
+    // Idea: Output encodes the observations of the adversary which include the 
+    //       addresses accessed in the ORAM.
+    //       We need to show that these observations (addresses) could be resulted from 
+    //       different accesss requests and do not give infromation about the 
+    //       access requests.
+
+    input   remap           : leaf_t;               // random remapping in pmap
+    input   access          : block_t;              // access request
+
+    output  data            : data_t;               // data
+    output  accessed_leaf   : server_address_t;
+    output  accessed_path   : [integer] server_address_t;
+    output  num_access      : integer;
+
+    // Data --blockt--> pmap --leaft--> path --[int]serverAddt--> == servAddt => oram --datat--> Add to stash
+
+    /********************************  PROCEDURES  ********************************************/ 
+    
+    procedure oram_access(block : block_t)
+        returns (dataT : data_t)
+        requires (LEVELS_ORAM > 0 && STASH_SIZE > 0);
+        requires (forall (i : stash_index_t) :: (i >= 0 && i < (current_stash_index)) ==> (stash)[i].valid);
+        requires (forall (i : block_t) :: (i >= 0 && i < N) ==> ((pmap)[i] >= 0) && ((pmap)[i] <LEAVES_ORAM));
+        requires (remap >= 0 && remap < LEAVES_ORAM);
+        requires num_access >= 0; 
+        requires (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+        ensures (forall (i : block_t) :: (i >= 0 && i < N) ==> (pmap[i] >= 0) && (pmap[i] <LEAVES_ORAM));
+        ensures (forall (j : stash_index_t) :: (j >=0 && j < current_stash_index ==> stash[j].valid));
+        ensures (forall (i : integer, k : bv2) :: (i > 0 && i <= LEVELS_ORAM && k >= 0bv2 && k < 4bv2 && !oram[path(pmap[block], i-1)][k].dummy) ==>
+                                (exists (j : stash_index_t) :: j >=0 && j <= current_stash_index ==> 
+                                    (stash[j].data == oram[path(pmap[block], i-1)][k].data) && stash[j].valid)
+                );
+        //ensures (!old(stash_overflow) && !reading_error ==> (forall (i:integer) :: i >= 0 && i < LEVELS_ORAM ==> accessed_path[i] == path(old(pmap)[block],i)));
+//        ensures (!stash_overflow ==> accessed_leaf == path(old(pmap)[block], LEVELS_ORAM));
+        ensures (!stash_overflow ==> (forall (i : block_t) :: if (i == block) then pmap[i] == remap else pmap[i] == old(pmap)[i]));
+        ensures (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+       
+        ensures (accessed_path == access_path(old(pmap)[block]));
+        ensures accessed_leaf == path(old(pmap)[block], LEVELS_ORAM);
+        ensures !old(stash_overflow) && stash_overflow ==> reading_error; 
+        ensures num_access == old(num_access)+1;
+        ensures num_access > 0;
+        ensures !stash_overflow ==> pmap[block] == remap;
+        ensures (forall (i : block_t) :: i >= 0 && i < N && i != block ==> pmap[i] == old(pmap)[i]);
+        ensures (initialized == true);
+        
+        //ensures false;
+        modifies stash, current_stash_index, oram, pmap, accessed_leaf, accessed_path, stash_overflow, reading_error, num_access, initialized;
+    {
+        initialized = true;
+
+        assert(current_stash_index >= 0);
+        assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+        
+        reading_error = false; 
+        num_access = num_access + 1;
+
+        accessed_leaf = path(pmap[block], LEVELS_ORAM);
+        accessed_path = access_path(pmap[block]);
+        
+        if (!stash_overflow)
+        {
+            call (stash, current_stash_index, dataT)   = read_to_stash(pmap[block]);
+            assert (accessed_path == access_path(pmap[block]));
+            if (stash_overflow)
+            {
+                reading_error = true;
+            }
+            assert !old(stash_overflow) && stash_overflow ==> reading_error; 
+            assert !reading_error ==> !stash_overflow ;    
+            //assert (!reading_error ==> (forall (i:integer) :: i >= 0 && i < LEVELS_ORAM ==> accessed_path[i] == path(old(pmap)[block],i)));
+            assert(current_stash_index >= 0);
+            assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+            
+            call pmap_remap(block, remap);
+            assert (accessed_path == access_path(old(pmap)[block]));
+            
+            assert(current_stash_index >= 0);
+            assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+            assert (forall (i : block_t) :: (i >= 0 && i < N) ==> (pmap[i] >= 0) && (pmap[i] <LEAVES_ORAM));
+            
+            call (stash, oram)                  = write_to_oram(pmap[block]);
+            assert (accessed_path == access_path(old(pmap)[block]));
+            
+            assert(current_stash_index >= 0);
+            assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+            
+            call (stash, current_stash_index)   = organize_stash();
+            assert (accessed_path == access_path(old(pmap)[block]));
+            assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+            //assert (!reading_error ==> (forall (i:integer) :: i >= 0 && i < LEVELS_ORAM ==> accessed_path[i] == path(old(pmap)[block],i)));
+            assert !old(stash_overflow) && stash_overflow ==> reading_error; 
+        } 
+    }
+
+    // reading data to stash
+    procedure read_to_stash(leaf : leaf_t)
+        returns (
+                stashT       : [ stash_index_t] stash_entry_t, 
+                stash_indexT : stash_index_t,
+                dataT        : data_t
+                )
+        requires (LEVELS_ORAM > 0 && STASH_SIZE > 0);
+        requires (forall (i : stash_index_t) :: (i >= 0 && i < current_stash_index) ==> stash[i].valid);
+        requires (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+        requires !stash_overflow;
+
+        ensures (stash_indexT >= 0);
+        ensures ((stash_indexT - current_stash_index) <= LEVELS_ORAM);
+        ensures (forall (j : stash_index_t) :: (j >=0 && j < current_stash_index) ==> (stashT[j].data == stash[j].data) && stashT[j].valid );
+        ensures (forall (i : integer, k : bv2) :: (i > 0 && i <= LEVELS_ORAM && k >= 0bv2 && k < 4bv2 && !oram[path(leaf, i-1)][k].dummy) ==>
+                                (exists (j : stash_index_t) :: j >=0 && j <= stash_indexT && 
+                                    (stashT[j].data == oram[path(leaf, i-1)][k].data) && stashT[j].valid)
+                );
+
+        ensures (stash_indexT >= 0 && stash_indexT <= STASH_SIZE);
+        ensures (stash_overflow ==> stash_indexT == STASH_SIZE);
+        //ensures false;
+        modifies stash_overflow;  //accessed_leaf, accessed_path, 
+    {
+        var i                : integer;
+        var temp_oram_entry  : server_entry_t;
+        var temp_stash_entry : stash_entry_t;
+        
+        stashT               = stash;
+        stash_indexT         = current_stash_index;
+        i                    = 0;
+        //accessed_path[0]     = path(leaf,0);
+        
+        while (i < LEVELS_ORAM && stash_indexT < STASH_SIZE) 
+            invariant (i >= 0 && i <= LEVELS_ORAM);
+            invariant (stash_indexT >= 0 && stash_indexT <= STASH_SIZE);
+            invariant (stash_indexT <= i + current_stash_index && stash_indexT >= current_stash_index);
+            invariant (forall (j : stash_index_t) :: (j >=0 && j < current_stash_index) ==> stashT[j] == stash[j]);
+            invariant (forall (j : stash_index_t) :: (j >=0 && j < stash_indexT) ==> stashT[j].valid);
+            invariant (forall (j : integer, l : bv2) :: j >= 0 && j < i && l >= 0bv2 && l < 4bv2 && !oram[path(leaf, j)][l].dummy ==> 
+                          (exists (k : stash_index_t) :: k >=0 && k <= stash_indexT && 
+                                (stashT[k].data == oram[path(leaf, j)][l].data) && stashT[k].valid)
+                      );
+        {
+            var j   : bv2;
+            j       = 0bv2;
+
+            // Read buckets
+            while (j < 4bv2)
+                invariant (j >= 0bv2 && j <= 4bv2);
+            {
+                temp_oram_entry             = oram[path(leaf, i)][j];
+                
+                if(!temp_oram_entry.dummy) {
+                    temp_stash_entry.block  = temp_oram_entry.block;
+                    temp_stash_entry.data   = temp_oram_entry.data;
+                    temp_stash_entry.valid  = true;
+                    
+                    if(temp_oram_entry.block == access){
+                        dataT = temp_oram_entry.data;
+                    }
+
+                    stashT[stash_indexT]    = temp_stash_entry;
+                    stash_indexT            = stash_indexT + 1;
+                } 
+                j = j + 1bv2;
+            }
+            i = i + 1;
+        }
+        if (stash_indexT == STASH_SIZE)
+        {
+            stash_overflow = true;
+        }
+    }
+
+    // write data from stash to ORAM
+    procedure write_to_oram(leaf : leaf_t)
+        returns (
+                stashT  : [ stash_index_t] stash_entry_t,
+                oramT   : [ server_address_t] bucket_t 
+                )
+        requires (LEVELS_ORAM > 0 && STASH_SIZE > 0);
+        requires (LEVELS_ORAM > 0);
+        requires ((current_stash_index) >=0 ); // &&  current_stash_index < STASH_SIZE);
+        ensures (forall (k:integer) :: k >= 0 && k <= LEVELS_ORAM ==>
+                        (exists (n:integer) :: n >= 0 && n <= STASH_SIZE && 
+                           (path(leaf, k) == path(pmap[stashT[n].block], k)) && (stashT)[n].valid ==>
+                             (exists (b: bv2) :: b >= 0bv2 && b < 4bv2 &&
+                              oramT[path(pmap[stashT[n].block], k)][b].block == stashT[n].block &&
+                              oramT[path(pmap[stashT[n].block], k)][b].data == stashT[n].data && 
+                              !oramT[path(pmap[stashT[n].block], k)][b].dummy && 
+                              !stashT[n].valid)
+                        )
+                );
+        ensures (exists (k:integer) :: k > 0 && k <= LEVELS_ORAM ==> 
+                        (forall (n:integer) :: n >= 0 && n <= STASH_SIZE &&
+                           (path(leaf, k) != path(pmap[stashT[n].block], k)) ==>
+                             (exists (b: bv2) :: b >= 0bv2 && b < 4bv2 && oramT[path(leaf, k)][b].dummy)
+                        )
+                );
+        //ensures false;
+    {
+        var i,k              : integer;
+        var temp_bucket_entry  : server_entry_t;
+        var temp_stash_entry : stash_entry_t;
+        var break            : boolean;
+        var temp_bucket      : bucket_t;
+
+        stashT               = stash;
+        oramT                = oram;
+        i                    = LEVELS_ORAM;
+        break                = false;
+
+        while (i > 0) 
+            invariant (i >= 0 && i <= LEVELS_ORAM); 
+            invariant (forall (k:integer) :: k > i && k <= LEVELS_ORAM ==>
+                            (exists (n:integer) :: n >= 0 && n <= STASH_SIZE && 
+                               (path(leaf, k) == path(pmap[stashT[n].block], k)) && (stashT)[n].valid ==>
+                                 (exists (b: bv2) :: b >= 0bv2 && b < 4bv2 &&
+                                  oramT[path(pmap[stashT[n].block], k)][b].block == stashT[n].block &&
+                                  oramT[path(pmap[stashT[n].block], k)][b].data == stashT[n].data && 
+                                  !oramT[path(pmap[stashT[n].block], k)][b].dummy && 
+                                  !stashT[n].valid)
+                            )
+                    );
+            invariant (exists (k:integer) :: k > i && k <= LEVELS_ORAM ==> 
+                            (forall (n:integer) :: n >= 0 && n <= STASH_SIZE &&
+                               (path(leaf, k) != path(pmap[stashT[n].block], k)) ==>
+                                 (exists (b: bv2) :: b >= 0bv2 && b < 4bv2 && oramT[path(leaf, k)][b].dummy)
+                            )
+                    );
+        {
+            var j   : bv2;
+            j       = 0bv2;
+
+            // Initialize the temp_bucket with dummy entries
+            while (j < 4bv2)
+                invariant (j >= 0bv2 && j <= 4bv2);
+            {
+                temp_bucket_entry.dummy = true;
+                temp_bucket[j] = temp_bucket_entry;
+                j = j + 1bv2;
+            }
+
+            j       = 0bv2;
+
+            // Write buckets
+            while (j < 4bv2)
+                invariant (j >= 0bv2 && j <= 4bv2);
+            {
+                k = 0;
+                break = false;
+                while (k < current_stash_index && !break) 
+                    //invariant (j >= 0 && j <= current_stash_index);
+                {
+                    if ((path(leaf, i) == path(pmap[stashT[k].block], i)) && stashT[k].valid) {
+                        // Write data to ORAM
+                        temp_bucket_entry.block   = stashT[k].block;
+                        temp_bucket_entry.data    = stashT[k].data;
+                        temp_bucket_entry.dummy   = false;
+                        
+                        temp_bucket[j]            = temp_bucket_entry;
+                        //oramT[path(pmap[stashT[k].block], i)][j] = temp_bucket_entry;
+
+                        temp_stash_entry        = stashT[k];
+                        temp_stash_entry.valid  = false;
+                        stashT[k]               = temp_stash_entry;
+                        
+                        break = true;
+                    }
+                }
+                if (!break) {                       // Nothing from stash can be added to this level anymore
+                    /*
+                    temp_bucket_entry.dummy = true;
+                    oramT[path(pmap[stashT[k].block], i)] = temp_bucket_entry;
+                    */
+                    j = 3bv2;
+                }
+                j = j + 1bv2;
+            }
+            oramT[path(pmap[stashT[k].block], i)] = temp_bucket;
+
+            i = i - 1;
+        }
+    }
+
+    // Organize stash by shifting the deleted entries
+    procedure organize_stash()
+        returns (
+                stashT       : [ stash_index_t] stash_entry_t,
+                stash_indexT : stash_index_t
+                )
+        requires (STASH_SIZE > 0);
+        ensures (forall (k:stash_index_t) ::  
+                        (k >= 0 && k < STASH_SIZE && stash[k].valid) ==> 
+                            (exists (l:stash_index_t) :: (l >= 0 && l < STASH_SIZE) && (stashT[l].data == stash[k].data))
+                );
+        ensures (forall (k:stash_index_t) ::
+                        (k >= 0 && k < stash_indexT) ==> stashT[k].valid);
+        ensures (forall (k:stash_index_t) ::
+                        (k >= stash_indexT && k < STASH_SIZE) ==> !stashT[k].valid);
+        ensures (stash_indexT  >= 0 && stash_indexT  <= STASH_SIZE);
+        ensures (old(stash_overflow) && !stash_overflow ==> stash_indexT < STASH_SIZE);
+        ensures !(old(stash_overflow)) ==> !stash_overflow; 
+        //ensures false;
+        modifies stash_overflow;
+    {
+        var i,j : stash_index_t;
+        i       = 0;
+        j       = 0;
+
+        call (stashT) = initialize_stash();
+        assert (forall (i : stash_index_t) :: (i >= 0 && i < STASH_SIZE) ==> !stashT[i].valid);
+
+        while (j < STASH_SIZE) 
+            invariant (i <= j);
+            invariant (i >= 0 && i <= STASH_SIZE);
+            invariant (j >= 0 && j <= STASH_SIZE);
+            invariant (forall (k:stash_index_t) :: 
+                            (k >= 0 && k < i) ==> stashT[k].valid); 
+            invariant (forall (k:stash_index_t) :: 
+                            ((k >= 0 && k < j && stash[k].valid) ==>  (exists (l:stash_index_t) :: (l >= 0 && l < i) && (stashT[l].data == stash[k].data)))
+                      ); 
+            invariant (forall (k:stash_index_t) :: (k >= i && k < STASH_SIZE) ==> !stashT[k].valid);
+        {
+            if (stash[j].valid){
+                stashT[i] = stash[j];
+                i = i + 1;
+                j = j + 1;
+            }
+            else {
+                j = j + 1;
+            }
+        }
+        assert (i <= STASH_SIZE);
+        stash_indexT = i;
+        if (stash_indexT < STASH_SIZE)
+        {
+            stash_overflow = false;
+        }
+        assert (stash_indexT  >= 0 && stash_indexT  <= STASH_SIZE);
+    }
+
+    // remapping position map
+    procedure pmap_remap(b : block_t, r : leaf_t)
+        requires (r >= 0 && r < LEAVES_ORAM);
+        requires (forall (i : block_t) :: (i >= 0 && i < N) ==> ((pmap)[i] >= 0) && ((pmap)[i] <LEAVES_ORAM));
+        ensures (forall (i : block_t) :: (i >= 0 && i < N) ==> (pmap[i] >= 0) && (pmap[i] <LEAVES_ORAM));
+        ensures (forall (i : block_t) :: if (i == b) then pmap[i] == r else pmap[i] == old(pmap)[i]);
+        ensures pmap[b] == r;
+        //ensures false;
+        modifies pmap;
+    {
+        pmap[b] = r;
+    }
+
+    // initialize stash. All entries in stash are invalid initially.
+    procedure initialize_stash()
+        returns (
+                stashT  : [ stash_index_t] stash_entry_t
+                )
+        requires (STASH_SIZE > 0);
+        ensures (forall (i : stash_index_t) :: (i >= 0 && i < STASH_SIZE) ==> !stashT[i].valid);
+        //ensures false;
+    {
+        var i       : integer;
+        var temp    : stash_entry_t;
+        i = 0;
+        while (i < STASH_SIZE)
+            invariant (i >= 0 && i <= STASH_SIZE);
+            invariant (forall (j : stash_index_t) :: (j >= 0 && j < i) ==> !stashT[j].valid);
+        {
+            temp.valid  = false;
+            stashT[i]    = temp;
+            i           = i+1;
+        }
+    }
+
+    init {
+        // stash is empty initially
+        initialized = false;
+        current_stash_index = 0;
+        
+        assume (remap >= 0 && remap < LEAVES_ORAM);
+        assume (forall (i: block_t) :: (i >= 0 && i < N) ==> (pmap[i] >= 0 && pmap[i] < LEAVES_ORAM));
+        // initially all enties in stash are flagged as invalid (false)
+        call (stash) = initialize_stash();
+        assert (forall (i: stash_index_t) :: (i >= 0 && i < STASH_SIZE) ==> !stash[i].valid);
+        
+        stash_overflow = false;
+        reading_error = false;
+        assume (current_stash_index ==0);
+        assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+        //accessed_leaf = init_accessed_leaf_value();
+        //accessed_path = const(accessed_leaf, [integer] server_address_t);
+        // permutation map is sane
+        num_access = 0;
+    }
+    
+   // assume (forall (i: block_t) :: (pmap[i] >= 0 && pmap[i] < LEAVES_ORAM));
+    assume (N > 0 && N < 1000);
+    assume (LEVELS_ORAM > 0               && LEVELS_ORAM < 10);
+    assume (LEAVES_ORAM > LEVELS_ORAM     && LEAVES_ORAM < 1000);
+    assume (STASH_SIZE  > 0               && STASH_SIZE  < 50);
+    
+    assume remapping_in_range : remap >=0 && remap < LEAVES_ORAM;
+    
+    assume (forall (leaf : leaf_t, level: integer) :: (level >= 0 && level < LEVELS_ORAM)  ==> path(leaf, level) == access_path(leaf)[level]);
+    
+    // make them invariant
+    //assume (forall (i,j : server_address_t) :: (i != j) ==> oram[i].block != oram[j].block );
+    invariant num_access_gt_0       : num_access >= 0;
+
+    invariant valid_stash_entries   : (forall (i : stash_index_t) :: (i >= 0 && i < current_stash_index) ==> stash[i].valid);
+    invariant stash_index_gt_zero   : (current_stash_index >=0 );
+    invariant pmap_in_range         : (forall (i : block_t) :: (i >= 0 && i < N) ==> (pmap[i] >= 0) && (pmap[i] <LEAVES_ORAM));
+    
+    invariant levels_in_range       : (LEVELS_ORAM > 0);
+    invariant stash_index_in_range  : (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+
+    invariant accessed_leaf_checks  : initialized && !stash_overflow ==> accessed_leaf == path(old(pmap)[access], LEVELS_ORAM);
+    
+    invariant pmap_remapping_checks : initialized && !stash_overflow ==> pmap[access] == remap;
+    invariant pmap_remains_unchanged: initialized ==> (forall (i : block_t) :: i >= 0 && i < N && i != access ==> pmap[i] == old(pmap)[i]);
+    
+    invariant num_access_increases  : initialized ==> num_access == old(num_access) + 1; 
+    
+    invariant accessed_path_is_consistent   : num_access > 0  ==> accessed_path == access_path(old(pmap)[access]); 
+    invariant access_leaf_is_consistent     : num_access > 0 ==> accessed_leaf == path(old(pmap)[access], LEVELS_ORAM);
+
+    //invariant bogus                 : false;
+
+    next{
+        assert (current_stash_index >= 0 && current_stash_index <= STASH_SIZE);
+        assert (STASH_SIZE > 0);
+        assert (current_stash_index <= STASH_SIZE);
+        call (data') = oram_access(access);
+    }
+    
+
+    control{ 
+        print ("");
+        print ("      VERIFYING PROCEDURES");
+        print ("      ====================");
+        print ("");
+        
+        print ("[Verifying] Stash initialization : initialize_stash");
+        print ("---------------------------------------------------");
+        f = verify(initialize_stash);
+        check;
+        print_results;
+        f.print_cex(STASH_SIZE, LEVELS_ORAM, LEAVES_ORAM);
+
+        clear_context;
+        
+        print ("");
+        print ("[Verifying] Position Map Remap : pmap_remap");
+        print ("-------------------------------------------");
+        f = verify(pmap_remap);
+        check;
+        print_results;
+        f.print_cex(pmap, LEAVES_ORAM, remap, (pmap), N);
+
+        clear_context;
+        
+        print ("");
+        print ("[Verifying] Reading to Stash from ORAM : read_to_stash");
+        print ("------------------------------------------------------");
+        f = verify(read_to_stash);
+        check;
+        print_results;
+        f.print_cex(stash, stashT, stash_indexT, current_stash_index, STASH_SIZE, oram, accessed_path, path(leaf, 0));
+       
+        clear_context;
+        
+        print ("");
+        print ("[Verifying] Writing form Stash to ORAM : write_to_oram");
+        print ("------------------------------------------------------");
+        f = verify(write_to_oram);
+        check;
+        print_results;
+        f.print_cex(stash, stashT, oram, oramT);
+
+        clear_context;
+        
+        print ("");
+        print ("[Verifying] Organize Stash : organize_stash");
+        print ("-------------------------------------------");
+        f = verify(organize_stash);
+        check;
+        print_results;
+        f.print_cex(stash, stashT);
+
+        clear_context;
+
+        print ("");
+        print ("[Verifying] ORAM Access : oram_access");
+        print ("-------------------------------------");
+        f = verify(oram_access);
+        check;
+        print_results;
+        //f.print_cex();
+
+        print ("");
+        print ("==========================================");
+        print ("       PROCEDURE VERIFICATION ENDED       ");
+        print ("==========================================");
+        print ("");
+
+        clear_context;
+        
+        //f = unroll(3);
+        f = induction;
+        check;
+        print_results;
+        //f.print_cex(pmap, LEAVES_ORAM, current_stash_index, STASH_SIZE);
+    }
+}
+

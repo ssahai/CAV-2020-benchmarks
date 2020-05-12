@@ -1,0 +1,46 @@
+/**
+  * This is a scaled up version of the Electronic Purse example (Sec. 6.2)
+  * taken from the IEEE S&P 2009 paper "Automatic Discovery and Quantification
+  * of Information Leaks" by Michael Backes, Boris Kopf, and Andrey
+  * Rybalchenko.
+  *
+  * We are considering an adversary who can observe the values of steps and
+  * done and showing that every adversary observation trace corresponds to at
+  * least 256 different account balances. 
+  */
+
+module electronic_purse
+{
+  var balance   : bv16;
+  var decr      : bv9;
+  output steps  : integer;
+  output done   : boolean;
+
+  init {
+    assume (balance >= 0bv16);
+    decr  = 256bv9;
+    steps = 0;
+    done  = (balance < bv_zero_extend(7, decr));
+  }
+
+  next {
+    var decr_extended : bv16;
+    decr_extended = bv_zero_extend(7, decr);
+    if (balance >= decr_extended) {
+      balance' = balance - decr_extended;
+      steps' = steps + 1;
+    } else {
+      done' = true;
+    }
+  }
+
+  //invariant bogus: steps != 5;
+
+  control {
+    v = unroll(5);
+    check;
+    print_results;
+    v.print_cex(balance, decr, steps, done);
+  }
+}
+

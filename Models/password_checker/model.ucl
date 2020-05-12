@@ -1,0 +1,59 @@
+module password_checker
+{
+  const   password        : [integer]bv8; 
+  const   password_length : integer;
+
+  input   guess           : [integer]bv8;
+  input   guess_length    : integer;
+
+  output  success         : boolean;
+
+  procedure check_password()
+    returns (equal : boolean)
+    requires password_length >= 0;
+    ensures 
+      ((forall (i : integer) :: 
+        (i >=0 && i < guess_length) ==> password[i] == guess[i]) &&
+       password_length == guess_length) <==> equal;
+  {
+    if(password_length != guess_length) {
+      equal = false;
+    } else {
+      var i : integer;
+      equal = true;
+      i = 0;
+      while (i < password_length) 
+        invariant i >= 0 && i <= password_length;
+        invariant password_length == guess_length;
+        invariant 
+          ((forall (j : integer) :: 
+            (j >=0 && j < i) ==> password[j] == guess[j]) &&
+            password_length == guess_length) 
+          <==> equal;
+      {
+        if (password[i] != guess[i]) {
+          equal = false;
+        }
+        i = i + 1;
+      }
+    }
+  }
+
+  init {
+    success     = true;
+  }
+
+  var check : boolean;
+  next {
+    call (check') = check_password();
+    success' = success && check';
+  }
+
+  control {
+    v = verify(check_password);
+    check;
+    print_results;
+    v.print_cex(password, guess, password_length, guess_length, equal);
+  }
+}
+

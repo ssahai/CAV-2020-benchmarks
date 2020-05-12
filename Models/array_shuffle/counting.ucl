@@ -1,0 +1,39 @@
+module main
+{
+    var R   : [integer]integer;
+    var n   : integer;
+    input k : integer;
+   
+    /* Valid function */
+
+    define valid(R: [integer]integer, n: integer): boolean =
+        (forall (i: integer) :: (i >= 0 && i <= n)  ==> R[i] >= i && R[i] < n) &&
+        (forall (i: integer) :: (i < 0  && i > n) ==> R[i] == 0);
+
+    /* Uniterpreted function to extend the length 'n' array 'R' of random choices to length n+1
+       with the element k. */
+   
+    function extend(R: [integer]integer, k: integer, n:integer) : [integer]integer;
+    
+    axiom extension : (forall (i: integer) :: 1 <= i && i < n ==>
+                            extend(R,k,n)[i] == extend(R,k,n)[i-1] + 1) && extend(R,k,n)[0] == k;
+    
+
+    // Injectivity invariant
+    invariant injectivity: valid(R, n) && (0 <= k && k <= n)
+                                    ==>  valid(extend(R,k,n), n+1);
+    
+    init {
+        assume n > 0;
+    }
+
+    next {
+    }
+
+    control{
+        v = induction(1);
+        check;
+        print_results;
+        v.print_cex();
+    }
+} 

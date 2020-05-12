@@ -1,0 +1,86 @@
+module array_shuffle
+{
+    const  N        : integer;                  // length of the array
+    const  A        : [integer] integer;        // array to be permuted
+    var    swapped  : boolean;                  // flag for swap 
+    input  r        : integer;                  // random input for the swap
+    output A_p      : [integer] integer;        // permuted version of A
+    output steps    : integer;                  // number of steps of the algorithm
+
+    procedure increment_steps()
+        requires steps >= 0;
+        ensures steps == old(steps) + 1;
+        ensures steps > 0;
+        modifies steps;
+    {
+        steps = steps + 1;
+    }
+
+    procedure swap_element()
+        requires steps >= 0 && steps < N;
+        requires r >= steps && r < N;
+        requires (forall (i,j: integer) :: (i >= 0 && i < N && j >= 0 && j < N && i != j) ==> A_p[i] != A_p[j]);
+        
+        ensures A_p[steps] == old(A_p)[r] && A_p[r] == old(A_p)[steps];
+        ensures (forall (i: integer) :: (i >= 0 && i < N && i != old(steps) && i!= r) ==> A_p[i] == old(A_p)[i]);
+        ensures (forall (i,j: integer) :: (i >= 0 && i < N && j >= 0 && j < N && i != j) ==> A_p[i] != A_p[j]);
+        ensures steps >= 0 && steps < N;
+        ensures swapped == true;
+        modifies A_p, swapped;
+    {
+        var temp: integer;
+        temp        = A_p[steps];
+        A_p[steps]  = A_p[r];
+        A_p[r]      = temp;
+        swapped     = true;
+    }
+
+    init {
+        assume (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> A[i] != A[j]);
+        assume (N > 0);
+
+        A_p     = A;
+        steps   = 0;
+        swapped = false;
+    }
+
+    next {
+        if (steps < N-1)
+        {
+            call swap_element();
+            call increment_steps();
+        }
+    }
+    
+    axiom     r_in_range                : r >= steps && r < N;
+   
+    invariant steps_are_bounded         : steps >= 0 && steps < N;
+    invariant elem_of_A_are_unique      : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> A[i] != A[j]);
+    invariant elem_of_A_p_are_unique    : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> A_p[i] != A_p[j]);
+    invariant A_p_unchanged_ind_steps   : swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps)) ==> A_p[i] == old(A_p)[i]);
+    invariant A_p_values_unchanged      : swapped ==> (forall (i: integer) :: (i >= 0 && i < N && i != old(steps) && i!= r) ==> A_p[i] == old(A_p)[i]);
+    invariant A_p_unchaged_before_steps : swapped ==> (forall (i: integer) :: i >= 0 && i < old(steps) ==> A_p[i] == old(A_p)[i]);
+    invariant swap_is_correct           : swapped ==> A_p[old(steps)] == old(A_p)[r] && A_p[r] == old(A_p)[old(steps)];
+    invariant swapped_true_except_init  : steps > 0 <==> swapped;
+
+    control {
+        f = verify(increment_steps);
+        check;
+        print_results;
+        f.print_cex(steps, old(steps));
+
+        clear_context;
+        
+        f = verify(swap_element);
+        check;
+        print_results;
+        f.print_cex();
+
+        clear_context;
+        //v = unroll(3);
+        v = induction(1);
+        check;
+        print_results;
+        v.print_cex(N, steps);
+    }
+}

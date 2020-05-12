@@ -1,0 +1,35 @@
+module main {
+    type password_t = [integer] bv1;
+
+    input p, p1, p2: password_t;
+    input n, n1, n2: integer;
+    input i, i1, i2: integer;
+
+    // valid function
+    define valid(p: password_t, n: integer): boolean =
+        (n > 0) &&
+        (forall (l: integer) :: (l < 0 || l >= n) ==> p[l] == 0bv1);
+
+    define w(j : integer): bv1 = int_to_bv(1, j);
+
+    define extend(p: password_t, k : integer, n : integer): password_t = p[n -> w(k)];
+
+    init {}
+
+    next {
+        assert (valid(p, n) && (0 <= i < 2)) ==> valid(extend(p, i, n), n + 1);
+        assert (valid(p1, n) && (0 <= i1 < 2) && 
+                valid(p2, n) && (0 <= i2 < 2) &&
+                (p1 != p2 || i1 != i2)) ==> 
+                    extend(p1, i1, n) != extend(p2, i2, n);
+
+    }
+
+
+    control {
+        v = induction(1);
+        check;
+        print_results;
+        v.print_cex();
+    }
+}

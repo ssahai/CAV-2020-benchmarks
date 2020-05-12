@@ -1,0 +1,100 @@
+module enumeration
+{
+  input guess_pwd   : [integer]bv8;
+  input guess_len   : integer;
+  var s0, s1, s2    : boolean;
+
+/*------------------------------------------------------------------+
+ | Enumeration Variables (Y)                                        |
+ +------------------------------------------------------------------*/
+  var u1, u2        : [integer]bv8;
+  
+  // length of the correct password.
+  const length      : integer;
+
+  instance p0 : password_checker( 
+    guess: (guess_pwd), guess_length: (guess_len), success: (s0) );
+  instance p1 : password_checker( 
+    guess: (guess_pwd), guess_length: (guess_len), success: (s1) );
+  instance p2 : password_checker( 
+    guess: (guess_pwd), guess_length: (guess_len), success: (s2) );
+
+/*------------------------------------------------------------------+
+ | Trace enumeration predicate (E)                                  |
+ | ===============================                                  |
+ |  Enumeration predicate to map a state (by mapping variable       |
+ |  'password') from one instance of password checker to another.   |
+ +------------------------------------------------------------------*/
+  define enumerate(p0: bv8, u1: bv8): bv8 = p0 + u1;
+
+  init {
+    assume (length > 0);
+    assume (p0.password_length == length);
+    assume (p1.password_length == length);
+    assume (p2.password_length == length);
+  
+    assume (forall (i : integer) ::
+              (i < 0 || i >= length) ==> 
+                u1[i] == 0bv8 && u2[i] == 0bv8);
+
+    /* The secret password of p1 is an enumeration of the secret
+       password in p0*/
+    assume (forall (i : integer) ::
+              (i >= 0 && i < length) ==>
+                p1.password[i] == enumerate(p0.password[i], u1[i]));
+    
+    /* The secret password of p2 is aslo an enumeration of the secret
+       password in p0*/
+    assume (forall (i : integer) ::
+              (i >= 0 && i < length) ==>
+                p2.password[i] == enumerate(p0.password[i], u2[i]));
+  }
+
+  next {
+    next (p0);
+    next (p1);
+    next (p2);
+  }
+
+/*------------------------------------------------------------------+
+ | Valid function (V)                                               |
+ | ==================                                               |
+ |  Defines the valid function for the variable set Y.              |
+ +------------------------------------------------------------------*/
+  /* length of password is equal. */
+  invariant len_equal: p0.password_length == length &&
+                       p1.password_length == length &&
+                       p2.password_length == length;
+
+  /* show that the only values of u1 that matter are 
+   * in the range  0 to n-1. */
+  invariant zero_outside_range:
+             (forall (i : integer) ::
+                (i < 0 || i >= length) ==> 
+                  u1[i] == 0bv8 && u2[i] == 0bv8);
+
+  /* p1 is an enumeration of p0. */
+  invariant is_enum1: (forall (i : integer) ::
+            (i >= 0 && i < length) ==>
+                p1.password[i] == enumerate(p0.password[i], u1[i]));
+  
+  /* p2 is also an enumeration of p0. */
+  invariant is_enum2: (forall (i : integer) ::
+            (i >= 0 && i < length) ==>
+                p2.password[i] == enumerate(p0.password[i], u2[i]));
+ 
+ /*------------------------------------------------------------------+
+  |  Proving surjective trace enumeration - Property 11              |
+  +------------------------------------------------------------------*/ 
+  
+  /* if the outputs differ, it must be because 
+   * they are different enumerations. */
+  invariant surjective: s1 != s2 ==> u1 != u2;
+
+
+  control {
+    v = induction;
+    check;
+    print_results;
+  }
+}

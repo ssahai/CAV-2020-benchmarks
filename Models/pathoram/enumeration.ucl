@@ -1,0 +1,209 @@
+module enumeration {
+    // map the types from pathoram module
+
+    type block_t            = pathoram.block_t;
+    type leaf_t             = pathoram.leaf_t;
+    type server_address_t   = pathoram.server_address_t;
+    type data_t             = pathoram.data_t;
+    type stash_index_t      = pathoram.stash_index_t;
+    type server_entry_t     = pathoram.server_entry_t;
+    type stash_entry_t      = pathoram.stash_entry_t;
+    
+    const LEVELS_ORAM       : integer;              // number of levels in ORAM 
+    const LEAVES_ORAM       : integer;              // number of leaves in ORAM
+    const STASH_SIZE        : integer;              // size of stash
+    const N                 : integer;    
+
+    // Enumeration variable - Y
+    const perm_1            : [ block_t ] block_t;  // permutation of position map for poram1
+    const perm_2            : [ block_t ] block_t;  // permutation of position map for poram2
+    const diff_index        : block_t;              // index at which perm_1 and perm_2 will differ
+
+    input   remap           : leaf_t;               // random remapping in pmap
+    input   access          : block_t;              // access request
+    
+    var     pmap0           : [ block_t] leaf_t;
+    var     pmap1           : [ block_t] leaf_t;    
+    var     pmap2           : [ block_t] leaf_t;    
+    
+    var     num_steps       : integer;              // number of steps
+
+    /* Enumeration Predicates */
+    define pi_map_1(b:block_t): block_t = perm_1[b]; 
+    define pi_map_2(b:block_t): block_t = perm_2[b]; 
+
+    instance poram0 : pathoram(access : (access), remap : (remap), pmap : (pmap0));
+    instance poram1 : pathoram(access : (pi_map_1(access)), remap : (remap), pmap : (pmap1));
+    instance poram2 : pathoram(access : (pi_map_2(access)), remap : (remap), pmap : (pmap2));
+
+    init {
+        assume (LEVELS_ORAM == poram0.LEVELS_ORAM && LEVELS_ORAM == poram1.LEVELS_ORAM && LEVELS_ORAM == poram2.LEVELS_ORAM);
+        assume (LEAVES_ORAM == poram0.LEAVES_ORAM && LEAVES_ORAM == poram1.LEAVES_ORAM && LEAVES_ORAM == poram2.LEAVES_ORAM);
+        assume (STASH_SIZE  == poram0.STASH_SIZE  && STASH_SIZE  == poram1.STASH_SIZE  && STASH_SIZE  == poram2.STASH_SIZE );
+        assume (N == poram0.N && N == poram1.N && N == poram2.N);
+        assume (poram0.data == poram1.data && poram1.data == poram2.data);
+        
+        assume (diff_index >= 0 && diff_index < N);        
+        //assume (forall (l : leaf_t) :: poram1.access_path(l) == poram2.access_path(l));
+
+        assume (forall (i: block_t) :: (i >= 0 && i < N) ==> poram0.pmap[i] == poram1.pmap[pi_map_1(i)] );                // assumes relation between pmaps of 2 ORAMs
+        assume (forall (i: block_t) :: (i >= 0 && i < N) ==> poram0.pmap[i] == poram2.pmap[pi_map_2(i)] );                // assumes relation between pmaps of 2 ORAMs
+
+        assume (forall (i,j : block_t) :: i >= 0 && i < N && j >= 0 && j < N && (i != j) ==> perm_1[i] != perm_1[j] );     // ensure perm_1 is a permutation
+        assume (forall (i,j : block_t) :: i >= 0 && i < N && j >= 0 && j < N && (i != j) ==> perm_2[i] != perm_2[j] );     // ensure perm_2 is a permutation
+
+        assume (forall (i : block_t) :: i >= 0 && i < N ==> perm_1[i] != i );                                             // ensure perm_1 is not an identity permutation
+        assume (forall (i : block_t) :: i >= 0 && i < N ==> perm_2[i] != i );                                             // ensure perm_2 is not an identity permutation
+
+        assume (forall (i : block_t) :: i >= 0 && i < N ==> perm_1[i] >= 0 && perm_1[i] <N );                              // ensure perm_1 is a permutation of 1 to N
+        assume (forall (i : block_t) :: i >= 0 && i < N ==> perm_2[i] >= 0 && perm_2[i] <N );                              // ensure perm_2 is a permutation of 1 to N
+
+        assume (forall (i : block_t) :: (i >= 0 && i < N) ==> (poram0.pmap[i] >= 0) && (poram0.pmap[i] < LEAVES_ORAM));
+
+        //assume (forall (i : block_t) :: perm_1[i] != perm_2[i]);
+        assume (perm_1[diff_index] != perm_2[diff_index]);
+        
+        assert (exists (i : block_t) :: perm_1[i] != perm_2[i]);
+        assert poram0.initialized == false;
+        assert poram0.num_access == 0;
+    }
+    
+    next {
+        next (poram0);
+        next (poram1);
+        next (poram2);
+        assert poram0.num_access > 0;
+    }
+
+    assume remapping_in_range   : remap >=0 && remap < LEAVES_ORAM;
+    assume access_in_range      : access >= 0 && access < N;
+
+    invariant initialzed_vars_same  : poram0.initialized == poram1.initialized && poram1.initialized == poram2.initialized;
+    
+    invariant num_steps_and_init        : poram0.num_access == 0 ==> !poram0.initialized;
+
+    invariant num_access_gt_0_poram0    : poram0.num_access >= 0;
+    invariant num_access_gt_0_poram1    : poram1.num_access >= 0;
+    invariant num_access_gt_0_poram2    : poram2.num_access >= 0;
+    
+    invariant valid_stash_entries_0     : (forall (i : stash_index_t) :: (i >= 0 && i < poram0.current_stash_index) ==> poram0.stash[i].valid);
+    invariant valid_stash_entries_1     : (forall (i : stash_index_t) :: (i >= 0 && i < poram1.current_stash_index) ==> poram1.stash[i].valid);
+    invariant valid_stash_entries_2     : (forall (i : stash_index_t) :: (i >= 0 && i < poram2.current_stash_index) ==> poram2.stash[i].valid);
+    
+    invariant pmap_in_range_0           : (forall (i : block_t) :: (i >= 0 && i < poram0.N) ==> (poram0.pmap[i] >= 0) && (poram0.pmap[i] < poram0.LEAVES_ORAM));
+    invariant pmap_in_range_1           : (forall (i : block_t) :: (i >= 0 && i < poram1.N) ==> (poram1.pmap[i] >= 0) && (poram1.pmap[i] < poram1.LEAVES_ORAM));
+    invariant pmap_in_range_2           : (forall (i : block_t) :: (i >= 0 && i < poram2.N) ==> (poram2.pmap[i] >= 0) && (poram2.pmap[i] < poram2.LEAVES_ORAM));
+
+
+//    invariant same_number_of_access     : poram0.access == poram1.access && poram1.num_access == poram2.num_access; 
+    
+    invariant pmap_remapping_checks_0   : poram0.num_access!=0 && !poram0.stash_overflow ==> poram0.pmap[access] == remap;
+    invariant pmap_remapping_checks_1   : poram1.num_access!=0 && !poram1.stash_overflow ==> poram1.pmap[pi_map_1(access)] == remap;
+    invariant pmap_remapping_checks_2   : poram2.num_access!=0 && !poram2.stash_overflow ==> poram2.pmap[pi_map_2(access)] == remap;
+
+    invariant N_corresponds             : poram0.N == N && poram1.N == N && poram2.N == N;
+
+    invariant pmaps_permuted_initially_1:
+                        poram0.num_access == 0 ==> (forall (i: block_t) 
+                                                        :: (i >= 0 && i < N) ==> poram0.pmap[i] == poram1.pmap[pi_map_1(i)] );
+    
+    invariant pmaps_permuted_initially_2:
+                        poram0.num_access == 0 ==> (forall (i: block_t) 
+                                                        :: (i >= 0 && i < N) ==> poram0.pmap[i] == poram2.pmap[pi_map_2(i)] );
+
+    invariant pmaps_permuted_initially_local_1:
+                        poram0.num_access == 0 ==> (forall (i: block_t) 
+                                                        :: (i >= 0 && i < N) ==> pmap0[i] == pmap1[pi_map_1(i)] );
+
+    invariant pmaps_permuted_initially_local_2:
+                        poram0.num_access == 0 ==> (forall (i: block_t) 
+                                                        :: (i >= 0 && i < N) ==> pmap0[i] == pmap2[pi_map_2(i)] );
+
+    invariant pmaps_remain_permuted_for_access_1: 
+                    poram0.num_access > 0 && !poram0.stash_overflow && 
+                        !poram1.stash_overflow ==> poram0.pmap[access] == poram1.pmap[pi_map_1(access)];  // assumes relation between pmaps of 2 ORAMs
+
+    invariant pmaps_remain_permuted_for_access_2: 
+                    poram0.num_access > 0 && !poram0.stash_overflow && 
+                        !poram2.stash_overflow ==> poram0.pmap[access] == poram2.pmap[pi_map_2(access)];  // assumes relation between pmaps of 2 ORAMs
+
+    invariant pmaps_remain_unchanged_together_1:
+                        poram0.num_access > 0 ==> (forall (i: block_t) 
+                                        :: (i >= 0 && i < N && i != access) ==> (pmap0[i] == old(pmap0)[i]) && pmap1[pi_map_1(i)] == old(pmap1)[pi_map_1(i)]);
+
+    invariant pmaps_remain_unchanged_together_2:
+                        poram0.num_access > 0 ==> (forall (i: block_t) 
+                                        :: (i >= 0 && i < N && i != access) ==> (pmap0[i] == old(pmap0)[i]) && pmap2[pi_map_2(i)] == old(pmap2)[pi_map_2(i)]);
+
+    invariant pmaps_remain_permuted_1:                                                                    
+                        poram0.num_access > 0 && !poram0.stash_overflow && 
+                        !poram1.stash_overflow ==> (forall (i: block_t) 
+                                                            :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap1)[pi_map_1(i)])  ==> poram0.pmap[i] == poram1.pmap[pi_map_1(i)] ); 
+
+    invariant pmaps_remain_permuted_2:                                                                    
+                        poram0.num_access > 0 && !poram0.stash_overflow && 
+                        !poram2.stash_overflow ==> (forall (i: block_t) 
+                                                            :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap2)[pi_map_2(i)])  ==> poram0.pmap[i] == poram2.pmap[pi_map_2(i)] ); 
+
+    
+    invariant LEVELS_ORAM_const             : (LEVELS_ORAM == poram0.LEVELS_ORAM && LEVELS_ORAM == poram1.LEVELS_ORAM && LEVELS_ORAM == poram2.LEVELS_ORAM);
+    invariant LEAVES_ORAM_const             : (LEAVES_ORAM == poram0.LEAVES_ORAM && LEAVES_ORAM == poram1.LEAVES_ORAM && LEAVES_ORAM == poram2.LEAVES_ORAM);
+    invariant STASH_SIZE_const              : (STASH_SIZE  == poram0.STASH_SIZE  && STASH_SIZE  == poram1.STASH_SIZE  && STASH_SIZE  == poram2.STASH_SIZE );
+    
+    invariant stash_index_in_rangei_poram0  : poram0.current_stash_index >= 0 && poram0.current_stash_index <= STASH_SIZE;
+    invariant stash_index_in_rangei_poram1  : poram1.current_stash_index >= 0 && poram1.current_stash_index <= STASH_SIZE;
+    invariant stash_index_in_rangei_poram2  : poram2.current_stash_index >= 0 && poram2.current_stash_index <= STASH_SIZE;
+
+    invariant equal_observed_access_1       : poram0.num_access > 0 && 
+                                                (forall (i: block_t) :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap1)[pi_map_1(i)]))  ==> poram0.accessed_leaf == poram1.accessed_leaf;
+    invariant equal_observed_access_2       : poram0.num_access > 0 && 
+                                                (forall (i: block_t) :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap2)[pi_map_2(i)]))  ==> poram0.accessed_leaf == poram2.accessed_leaf;
+    
+    invariant pi_map_are_different          : (exists (i : block_t) :: i >= 0 && i < N && pi_map_1(i) != pi_map_2(i));
+
+    /*------------------------------------------------------+
+     |  Proving Deniability Property                        |
+     +------------------------------------------------------*/
+
+    invariant different_access_request_1    : poram0.access != poram1.access;
+    invariant different_access_request_2    : poram0.access != poram2.access;
+  
+    // Valid(Y) 
+    invariant perm_1_in_range           : (forall (i : block_t) :: i >= 0 && i < N ==> perm_1[i] >= 0 && perm_1[i] <N );                            // ensure perm_1 is a permutation of 1 to N
+    invariant perm_1_is_not_id          : (forall (i : block_t) :: i >= 0 && i < N ==> perm_1[i] != i );                                            // ensure perm_1 is not an identity permutation
+    invariant perm_1_is_distinct        : (forall (i,j : block_t) :: i >= 0 && i < N && j >= 0 && j < N && (i != j) ==> perm_1[i] != perm_1[j] );   // ensure perm_1 is a permutation
+    
+    invariant perm_2_in_range           : (forall (i : block_t) :: i >= 0 && i < N ==> perm_2[i] >= 0 && perm_2[i] <N );                            // ensure perm_2 is a permutation of 1 to N
+    invariant perm_2_is_not_id          : (forall (i : block_t) :: i >= 0 && i < N ==> perm_2[i] != i );                                            // ensure perm_2 is not an identity permutation
+    invariant perm_2_is_distinct        : (forall (i,j : block_t) :: i >= 0 && i < N && j >= 0 && j < N && (i != j) ==> perm_2[i] != perm_2[j] );   // ensure perm_2 is a permutation
+
+    invariant perms_are_different       : (exists (i : block_t) :: i >= 0 && i < N && perm_1[i] != perm_2[i]);
+    invariant perms_diff_at_diff_index  : perm_1[diff_index] != perm_2[diff_index];
+
+    // Enumeration - pi_map_1 and pi_map_2 are enumeration predicates, that take perm1 and perm2 as inputs. 
+    invariant access_are_permuted_1     : poram1.access == pi_map_1(poram0.access);
+    invariant access_are_permuted_2     : poram2.access == pi_map_2(poram0.access);
+
+    // Delta - F(input(t1) != input(t2))
+    invariant different_access_request      : (poram0.access == diff_index) ==> (poram1.access != poram2.access);
+    
+    // Psi - G(access(t1) == access(t2))
+    invariant equal_observed_access_path_1  : poram0.num_access > 0 &&
+                                                (forall (i: block_t) :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap1)[pi_map_1(i)])) ==> 
+                                                    (forall(j : integer) :: (j >= 0 && j < LEVELS_ORAM) ==> poram0.accessed_path[j] == poram1.accessed_path[j]);
+    invariant equal_observed_access_path_2  : poram0.num_access > 0 &&
+                                                (forall (i: block_t) :: (i >= 0 && i < N  && old(pmap0)[i] == old(pmap2)[pi_map_2(i)])) ==> 
+                                                    (forall(j : integer) :: (j >= 0 && j < LEVELS_ORAM) ==> poram0.accessed_path[j] == poram2.accessed_path[j]);
+    //    invariant bogus: false;
+    
+    control {
+        //print_module;
+        set_solver_option(":mbqi", false);
+        f = induction;
+        //f = induction;
+        check;
+        print_results;
+        f.print_cex(access, poram1.access, poram2.access, N);
+    }
+}
+

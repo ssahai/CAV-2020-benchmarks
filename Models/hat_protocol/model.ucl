@@ -1,0 +1,91 @@
+module common
+{
+  type color_t = integer;
+
+  const NUM_COLORS : integer;
+  assume NUM_COLORS > 0;
+
+  // number of prover/verifier rounds
+  const NUM_ROUNDS : integer;
+
+}
+
+
+module hat_protocol
+{
+  type hat_t;
+  type color_t = common.color_t;
+
+  // what is a valid color?
+  define valid_color(c : color_t) : boolean = (0 <= c && c < common.NUM_COLORS);
+
+  // uninterpreted function to map hats to colors.
+  function color_of(h : hat_t) : color_t;
+
+  // these are the hats the verifier has.
+  const hats : [color_t]hat_t;
+  // the hats must all be different.
+  assume forall (i, j : color_t) ::
+            ((i != j) && valid_color(i) && valid_color(j)) ==>
+                hats[i] != hats[j];
+
+  // the challenges the verifier is going to make.
+  const verifier_challenges: [integer]color_t;
+
+  // the results of each round.
+  var round_results : [integer]boolean;
+
+  // the eventual pass/fail status.
+  output pass : boolean;
+
+  // the output of the current round.
+  input round_response_in : color_t;
+  output round_response : color_t;
+
+  // which round are we in?
+  var round : integer;
+
+  // is the game over?
+  output game_over : boolean;
+
+  init {
+    round = 0;
+    pass = true;
+    game_over = round >= common.NUM_ROUNDS;
+    round_result = true;
+  }
+
+  var round_challenge : hat_t;
+  var round_result : boolean;
+
+  next {
+    if (round < common.NUM_ROUNDS) {
+      // verifier picks a hat.
+      round_challenge' = hats[verifier_challenges[round']];
+      // prover says whatever.
+      round_response' = round_response_in;
+      // we win round if guess is correct.
+      round_result' = (round_response' == color_of(round_challenge'));
+      // update game result.
+      pass' = pass && round_result';
+      // record round result.
+      round_results'= round_results[round -> round_result'];
+      // increment round.
+      round' = round + 1;
+    }
+    game_over' = round >= common.NUM_ROUNDS;
+  }
+
+  // invariant pass_true: game_over ==> pass;
+
+  control {
+    v = unroll(10);
+    check;
+    print_results;
+    v.print_cex(round, pass, 
+        round_challenge, round_response_in,
+        round_response, round_result,
+        color_of(round_challenge));
+  }
+}
+

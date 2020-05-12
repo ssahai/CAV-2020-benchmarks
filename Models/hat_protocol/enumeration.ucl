@@ -1,0 +1,191 @@
+module enumeration
+{
+  type hat_t    = hat_protocol.hat_t;
+  type color_t  = common.color_t;
+
+  // what is a valid color?
+  define valid_color(c : color_t) : boolean = (0 <= c && c < common.NUM_COLORS);
+  define valid_round(r : integer) : boolean = (0 <= r && r < common.NUM_ROUNDS);
+
+/*--------------------------------+
+ |  Trace enumeration predicate   |
+ +--------------------------------*/
+  define color_plus(c1 : color_t, c2 : color_t) : color_t =
+    if (c1 + c2 >= common.NUM_COLORS)
+       then c1 + c2 - common.NUM_COLORS
+       else c1 + c2;
+
+  var rnd_resp_in_0, rnd_resp_in_1, rnd_resp_in_2   : color_t;
+  var rnd_resp_0, rnd_resp_1, rnd_resp_2            : color_t;
+  var challenges_0, challenges_1, challenges_2      : [integer]color_t;
+  var pass_0, pass_1, pass_2                        : boolean;
+  var done_0, done_1, done_2                        : boolean;
+
+  var hats                                          : [color_t]hat_t;
+  var round                                         : integer;
+
+/*--------------------------------+
+ |  Enumeration variables         |
+ +--------------------------------*/
+  const pi_1          : [integer]color_t;
+  const delta_1       : integer;          // the place where the enumeration differs from id.
+
+  const pi_2          : [integer]color_t;
+  const delta_2       : integer;          // the place where the enumeration differs from id.
+
+
+  instance game0 : hat_protocol( 
+    round_response_in : (rnd_resp_in_0'),
+    round_response    : (rnd_resp_0),
+    pass              : (pass_0),
+    game_over         : (done_0)
+  );
+  
+  instance game1 : hat_protocol( 
+    round_response_in : (rnd_resp_in_1'),
+    round_response    : (rnd_resp_1),
+    pass              : (pass_1),
+    game_over         : (done_1)
+  );
+
+  instance game2 : hat_protocol( 
+    round_response_in : (rnd_resp_in_2'),
+    round_response    : (rnd_resp_2),
+    pass              : (pass_2),
+    game_over         : (done_2)
+  );
+
+  init {
+    round = 0;
+    assume common.NUM_ROUNDS > 0;
+    assume forall (i : color_t, j : color_t) :: (i != j) ==> 
+                            (hat_protocol.color_of(hats[i]) != hat_protocol.color_of(hats[j]));
+
+    rnd_resp_in_0   = hat_protocol.color_of(hats[challenges_0[round]]);
+    rnd_resp_0      = hat_protocol.color_of(hats[challenges_0[round]]);
+    rnd_resp_in_1   = hat_protocol.color_of(hats[challenges_1[round]]);
+    rnd_resp_1      = hat_protocol.color_of(hats[challenges_1[round]]);
+    rnd_resp_in_2   = hat_protocol.color_of(hats[challenges_2[round]]);
+    rnd_resp_2      = hat_protocol.color_of(hats[challenges_2[round]]);
+
+    assume (hats == game0.hats);
+    assume (hats == game1.hats);
+    assume (hats == game2.hats);
+
+    assume (challenges_0 == game0.verifier_challenges);
+    assume (challenges_0 == game1.verifier_challenges);
+    assume (challenges_0 == game2.verifier_challenges);
+    
+    // valid colors for challenges_0
+    assume forall (i : integer) :: valid_round(i) ==> valid_color(challenges_0[i]);
+    
+    // for the other two challenge must be related to the first one (challenge_0).
+    assume forall (i : integer) :: valid_round(i) ==> challenges_1[i] == color_plus(pi_1[i], challenges_0[i]);
+    assume forall (i : integer) :: valid_round(i) ==> challenges_2[i] == color_plus(pi_2[i], challenges_0[i]);
+
+    /* NOTE: These are the constraints on pi and delta, and the number of
+     * satisfying assignments to pi is the number of deniable traces. */
+    // assume the delta is valid.
+    assume valid_round(delta_1) && delta_1 > 0;
+    assume forall (i : integer) :: (valid_round(i) && i < delta_1) ==> pi_1[i] == 0;
+    assume pi_1[delta_1] != 0;
+    
+    assume valid_round(delta_2) && delta_2 > 0;
+    assume forall (i : integer) :: (valid_round(i) && i < delta_2) ==> pi_2[i] == 0;
+    assume pi_2[delta_2] != 0;
+    
+    // same for enumeration.
+    assume forall (i : integer) :: valid_round(i) ==> valid_color(pi_1[i]);
+    assume forall (i : integer) :: valid_round(i) ==> valid_color(pi_2[i]);
+  }
+
+  next {
+    if (round < common.NUM_ROUNDS) {
+      round' = round + 1;
+      rnd_resp_in_1' = hat_protocol.color_of(hats[challenges_1[round']]);
+      rnd_resp_in_2' = hat_protocol.color_of(hats[challenges_2[round']]);
+      havoc rnd_resp_in_0;
+    }
+    next (game0);
+    next (game1);
+    next (game2);
+    // uncomment for smoke test
+    // assert false;
+  }
+
+  /* Valid function:
+     --------------
+     A bunch of invariants related to delta. */
+  invariant delta_1_range           : valid_round(delta_1) && delta_1 > 0;
+  invariant delta_2_range           : valid_round(delta_2) && delta_2 > 0;
+  invariant delta_1_prefix          : forall (i : integer) :: (valid_round(i) && i < delta_1) ==> pi_1[i] == 0;
+  invariant delta_2_prefix          : forall (i : integer) :: (valid_round(i) && i < delta_2) ==> pi_2[i] == 0;
+  invariant delta_1_diff            : pi_1[delta_1] != 0;
+  invariant delta_2_diff            : pi_2[delta_2] != 0;
+
+  invariant round_result_true_0     : game0.round_result;
+  invariant round_result_true_1     : round < delta_1 ==> game1.round_result;
+  invariant round_result_true_2     : round < delta_2 ==> game2.round_result;
+  invariant round_result_false_1    : round == delta_1 ==> !game1.round_result;
+  invariant round_result_false_2    : round == delta_2 ==> !game2.round_result;
+
+  assume    pass_0_always           : pass_0;
+  invariant pass_1_sometimes        : (round < delta_1) ==> pass_1;
+  invariant pass_1_after_delta      : (round >= delta_1) ==> !pass_1;
+  invariant pass_2_sometimes        : (round < delta_2) ==> pass_2;
+  invariant pass_2_after_delta      : (round >= delta_2) ==> !pass_2;
+
+  // these challenges must be for valid colors with valid rounds etc..
+  invariant num_rounds_positive     : common.NUM_ROUNDS > 0;
+  invariant same_hats               : hats == game0.hats && hats == game1.hats && hats == game2.hats;
+  invariant round_range             : round >= 0 && round <= common.NUM_ROUNDS;
+  invariant rounds_same             : round == game0.round && round == game1.round && round == game2.round;
+  invariant same_challenges         : challenges_0 == game0.verifier_challenges &&
+                                      challenges_0 == game1.verifier_challenges &&
+                                      challenges_0 == game2.verifier_challenges;
+  
+  // the enumeration must be valid.
+  invariant permutation_1_valid     : forall (i : integer) :: valid_round(i) ==> valid_color(pi_1[i]);
+  invariant permutation_2_valid     : forall (i : integer) :: valid_round(i) ==> valid_color(pi_2[i]);
+  
+  // second challenge is related to the first one.
+  invariant challenges_1_value      : forall (i : integer) :: valid_round(i) ==> 
+                                            challenges_1[i] == color_plus(pi_1[i], challenges_0[i]);
+  invariant challenges_2_value      : forall (i : integer) :: valid_round(i) ==> 
+                                            challenges_2[i] == color_plus(pi_2[i], challenges_0[i]);
+   
+  invariant challenges_0_valid      : forall (i : integer) :: valid_round(i) ==> 
+                                            valid_color(challenges_0[i]);
+  invariant challenges_1_valid      : forall (i : integer) :: valid_round(i) ==> 
+                                            valid_color(challenges_1[i]);
+  invariant challenges_2_valid      : forall (i : integer) :: valid_round(i) ==> 
+                                            valid_color(challenges_2[i]);
+  
+  invariant distinct_hats           : forall (i : color_t, j : color_t) :: 
+                                        (i != j) ==> (hat_protocol.color_of(hats[i]) != hat_protocol.color_of(hats[j]));
+  
+  invariant rnd_resp_in_0_correct   : rnd_resp_in_0 == hat_protocol.color_of(hats[challenges_0[round]]);
+  invariant rnd_resp_in_1_correct   : rnd_resp_in_1 == hat_protocol.color_of(hats[challenges_1[round]]);
+  invariant rnd_resp_in_2_correct   : rnd_resp_in_2 == hat_protocol.color_of(hats[challenges_2[round]]);
+  
+  invariant color_correct_0         : round < common.NUM_ROUNDS ==> 
+                                        rnd_resp_0 == hat_protocol.color_of(hats[challenges_0[round]]);
+  invariant color_correct_1         : round < common.NUM_ROUNDS ==> 
+                                        rnd_resp_1 == hat_protocol.color_of(hats[challenges_1[round]]);
+  invariant color_correct_2         : round < common.NUM_ROUNDS ==>
+                                        rnd_resp_2 == hat_protocol.color_of(hats[challenges_2[round]]);
+
+  control {
+    set_solver_option(":mbqi", false);
+    v = induction(1);
+    check;
+    print_results;
+    v.print_cex(round, common.NUM_ROUNDS,
+                challenges_1[round], hats[challenges_1[round]],
+                hat_protocol.color_of(hats[challenges_1[round]]),
+                rnd_resp_in_1, game1.round_response_in,
+                rnd_resp_1, game1.round_response,
+                game1.pass, game1.round_result
+               );
+  }
+}

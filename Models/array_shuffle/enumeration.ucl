@@ -1,0 +1,195 @@
+module enumeration
+{
+    const  A        : [integer] integer;        // array to be permuted
+    const  N        : integer;                  // length of the array A
+    const  rand0    : [integer] integer;        // array of random choices for instance 0
+   
+    /* Enumeration variables (Y): rand1, rand2, dif_ind  */ 
+    const  rand1    : [integer] integer;        // array of random choices for instance 1
+    const  dif_ind1 : integer;                  // differing index between rand1 and rand0
+    const  rand2    : [integer] integer;        // array of random choices for instance 2
+    const  dif_ind2 : integer;                  // differing index between rand1 and rand0
+
+    var    steps    : integer;                  // number of steps in enumeration
+    var    steps0   : integer;                  // number of steps in instance 0
+    var    steps1   : integer;                  // number of steps in instance 1
+    var    steps2   : integer;                  // number of steps in instance 2
+
+    var    A_p_0    : [integer] integer;        // permuted version of A in instance 0
+    var    A_p_1    : [integer] integer;        // permuted version of A in instance 1
+    var    A_p_2    : [integer] integer;        // permuted version of A in instance 2
+    
+    var    swap0    : integer;                  // random input for the swap for instance 0
+    var    swap1    : integer;                  // random input for the swap for instance 1
+    var    swap2    : integer;                  // random input for the swap for instance 2
+
+    instance permutations0 : array_shuffle (r : (swap0), A_p: (A_p_0), steps: (steps0));
+    instance permutations1 : array_shuffle (r : (swap1), A_p: (A_p_1), steps: (steps1));
+    instance permutations2 : array_shuffle (r : (swap2), A_p: (A_p_2), steps: (steps2));
+    
+    procedure update_swap_variables()
+        requires rand0[permutations0.steps] >= permutations0.steps && rand0[permutations0.steps] < N;
+        requires rand1[permutations1.steps] >= permutations1.steps && rand1[permutations1.steps] < N;
+        requires rand2[permutations2.steps] >= permutations2.steps && rand2[permutations2.steps] < N;
+
+        ensures swap0 == rand0[permutations0.steps] && swap1 == rand1[permutations1.steps] && swap2 == rand2[permutations2.steps];
+        ensures swap0 >= permutations0.steps && swap0 < N;
+        ensures swap1 >= permutations1.steps && swap1 < N;
+        ensures swap2 >= permutations2.steps && swap2 < N;
+        ensures steps == old(steps) + 1;
+
+        modifies swap0, swap1, swap2, steps;
+    {
+        swap0 = rand0[permutations0.steps];
+        swap1 = rand1[permutations1.steps];
+        swap2 = rand2[permutations2.steps];
+        steps = steps + 1;
+    }
+
+    init {
+        assume (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> A[i] != A[j]);
+        assume (N > 0);
+        assume (forall (i: integer) :: i >= 0 && i < N ==> (rand0[i] >= i && rand0[i] < N));
+        
+        /* Valid for rand1 and rand2 */
+        assume (forall (i: integer) :: i >= 0 && i < N ==> (rand1[i] >= i && rand1[i] < N));
+        assume (forall (i: integer) :: i >= 0 && i < N ==> (rand2[i] >= i && rand2[i] < N));
+
+        assume (dif_ind1 >= 0 && dif_ind1 < N);
+        assume (dif_ind2 >= 0 && dif_ind2 < N);
+        assume (dif_ind1 != dif_ind2);
+
+        assume (forall (i: integer) :: i >= 0 && i < dif_ind1 ==> (rand0[i] == rand1[i]));
+        assume (forall (i: integer) :: i >= 0 && i < dif_ind2 ==> (rand0[i] == rand2[i]));
+        assume (rand0[dif_ind1] != rand1[dif_ind1]);
+        assume (rand0[dif_ind2] != rand2[dif_ind2]);
+
+        assume (permutations0.N == N && permutations1.N == N && permutations2.N == N);
+        assume (permutations0.A == A && permutations1.A == A && permutations2.A == A);
+        assume (permutations0.steps == 0 && permutations1.steps == 0 && permutations2.steps == 0);
+        assume (permutations0.A_p == A && permutations1.A_p == A && permutations2.A_p == A);
+        assume (swap0 == rand0[0] && swap1 == rand1[0] && swap2 == rand2[0]);
+        assume steps == 0;
+        assert permutations0.r == swap0 && permutations1.r == swap1 && permutations2.r == swap2;
+    }
+
+    next {
+        if (steps < N-1)
+        {
+            next (permutations0);
+            assert (permutations0.steps > 0);
+            next (permutations1);
+            assert (permutations1.steps > 0);
+            next (permutations2);
+            assert (permutations2.steps > 0);
+            call update_swap_variables();
+            assert permutations0.r == swap0 && permutations1.r == swap1 && permutations2.r == swap2;
+        }
+    }
+
+    invariant dif_ind2_in_range         : (dif_ind1 >= 0 && dif_ind1 < N);
+    invariant dif_ind1_in_range         : (dif_ind2 >= 0 && dif_ind2 < N);
+    invariant steps_in_range            : steps >= 0 && steps < N;
+    invariant steps_corresponding       : steps == permutations0.steps && steps == permutations1.steps && steps == permutations2.steps;
+    
+    invariant rand0_in_range            : rand0[permutations0.steps] >= permutations0.steps && rand0[permutations0.steps] < N;
+    invariant rand1_in_range            : rand1[permutations1.steps] >= permutations1.steps && rand1[permutations1.steps] < N;
+    invariant rand2_in_range            : rand2[permutations2.steps] >= permutations2.steps && rand2[permutations2.steps] < N;
+    invariant swap0_in_range            : swap0 >= permutations0.steps && swap0 < N;
+    invariant swap1_and_swap2_in_range  : swap1 >= permutations1.steps && swap1 < N && swap2 >= permutations2.steps && swap2 < N;
+    invariant swaps_same_bfr_dif_ind1   : steps < dif_ind1 ==> swap1 == swap0;
+    invariant swaps_same_bfr_dif_ind2   : steps < dif_ind2 ==> swap2 == swap0;
+    invariant swaps_diff_aftr_dif_ind1  : steps == dif_ind1 ==> swap1 != swap0; 
+    invariant swaps_diff_aftr_dif_ind2  : steps == dif_ind2 ==> swap2 != swap0; 
+
+    invariant steps_are_bounded_0       : permutations0.steps >= 0 && permutations0.steps < N;
+    invariant elem_of_A_are_unique_0    : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations0.A[i] != permutations0.A[j]);
+    invariant elem_of_A_p_are_unique_0  : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations0.A_p[i] != permutations0.A_p[j]);
+    invariant A_p_0_is_correct          : (forall (i: integer) :: (i >= 0 && i < N) ==> A_p_1[i] == permutations1.A_p[i]);
+    invariant steps0_equal              : steps1 == permutations1.steps;
+    invariant swap_is_correct_0         : permutations0.swapped ==> A_p_0[old(steps0)] == old(A_p_0)[old(swap0)] && A_p_0[old(swap0)] == old(A_p_0)[old(steps0)];
+    invariant A_p_values_unchanged_0    : permutations0.swapped ==> (forall (i: integer) :: (i >= 0 && i < N && i != old(steps0) && i!= old(swap0) ==> A_p_0[i] == old(A_p_0)[i]));
+    invariant A_p_unchanged_ind_steps_0 : permutations0.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps0)) ==> A_p_0[i] == old(A_p_0)[i]);
+    invariant A_p_s_same_bfr_steps_0    : permutations0.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps0)) ==> A_p_0[i] == old(A_p_0)[i]);
+
+    invariant steps_are_bounded_1       : permutations1.steps >= 0 && permutations1.steps < N;
+    invariant elem_of_A_are_unique_1    : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations1.A[i] != permutations1.A[j]);
+    invariant elem_of_A_p_are_unique_1  : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations1.A_p[i] != permutations1.A_p[j]);
+    invariant A_p_1_is_correct          : (forall (i: integer) :: (i >= 0 && i < N) ==> A_p_1[i] == permutations1.A_p[i]);
+    invariant steps1_equal              : steps1 == permutations1.steps;
+    invariant swap_is_correct_1         : permutations1.swapped ==> A_p_1[old(steps1)] == old(A_p_1)[old(swap1)] && A_p_1[old(swap1)] == old(A_p_1)[old(steps1)];
+    invariant A_p_values_unchanged_1    : permutations1.swapped ==> (forall (i: integer) :: (i >= 0 && i < N && i != old(steps1) && i!= old(swap1) ==> A_p_1[i] == old(A_p_1)[i]));
+    invariant A_p_unchanged_ind_steps_1 : permutations1.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps1)) ==> A_p_1[i] == old(A_p_1)[i]);
+    invariant A_p_s_same_bfr_steps_1    : permutations1.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps1)) ==> A_p_1[i] == old(A_p_1)[i]);
+
+    invariant steps_are_bounded_2       : permutations2.steps >= 0 && permutations2.steps < N;
+    invariant elem_of_A_are_unique_2    : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations2.A[i] != permutations2.A[j]);
+    invariant elem_of_A_p_are_unique_2  : (forall (i,j: integer) :: i >= 0 && i < N && j >= 0 && j < N && i != j ==> permutations2.A_p[i] != permutations2.A_p[j]);
+    invariant steps2_equal              : steps2 == permutations2.steps;
+    invariant swap_is_correct_2         : permutations2.swapped ==> A_p_2[old(steps2)] == old(A_p_2)[old(swap2)] && A_p_2[old(swap2)] == old(A_p_2)[old(steps2)];
+    invariant A_p_values_unchanged_2    : permutations2.swapped ==> (forall (i: integer) :: (i >= 0 && i < N && i != old(steps2) && i!= old(swap2) ==> A_p_2[i] == old(A_p_2)[i]));
+    invariant A_p_unchanged_ind_steps_2 : permutations2.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps2)) ==> A_p_2[i] == old(A_p_2)[i]);
+    invariant A_p_s_same_bfr_steps_2    : permutations2.swapped ==> (forall (i: integer) :: (i >= 0 && i < old(steps2)) ==> A_p_2[i] == old(A_p_2)[i]);
+
+    invariant initial_perms_are_same    : permutations1.A == permutations2.A;
+    invariant perms_generation_sync     : permutations1.steps == permutations2.steps;
+   
+    invariant r_correspond_1            : steps < dif_ind1 ==> permutations0.r == permutations1.r;
+    invariant r_correspond_2            : steps < dif_ind2 ==> permutations0.r == permutations2.r;
+    invariant A_p_values_are_same_1     : steps > 0 && old(steps) < dif_ind1 ==> (forall (i: integer) :: (i >= 0 && i < N) ==> permutations1.A_p[i] == permutations0.A_p[i]);
+    invariant A_p_values_are_same_2     : steps > 0 && old(steps) < dif_ind2 ==> (forall (i: integer) :: (i >= 0 && i < N) ==> permutations2.A_p[i] == permutations0.A_p[i]);
+    invariant A_p_diff_at_dif_ind1      : steps > 0 && old(steps) >= dif_ind1 ==> permutations1.A_p[dif_ind1] != permutations0.A_p[dif_ind1];
+    invariant A_p_diff_at_dif_ind2      : steps > 0 && old(steps) >= dif_ind2 ==> permutations2.A_p[dif_ind2] != permutations0.A_p[dif_ind2];
+    invariant A_p_s_same_bfr_dif_ind1   : (forall (i: integer) :: i >= 0 && i < dif_ind1 ==> (permutations1.A_p[i] == permutations0.A_p[i]));
+    invariant A_p_s_same_bfr_dif_ind2   : (forall (i: integer) :: i >= 0 && i < dif_ind2 ==> (permutations2.A_p[i] == permutations0.A_p[i]));
+
+                    /*-----------------------------------------+ 
+                     |  Proving injective trace enumeration    |
+                     +-----------------------------------------*/
+
+    /* Phi */
+    invariant A_correspond              : permutations0.A == permutations1.A && permutations0.A == permutations2.A;
+    invariant N_correspond              : permutations0.N == permutations1.N && permutations0.N == permutations2.N;
+    invariant steps_correspond          : permutations0.steps == permutations1.steps && permutations1.steps == permutations2.steps;
+    invariant swapped_correspond        : permutations0.swapped == permutations1.swapped && permutations1.swapped == permutations2.swapped;
+    invariant A_p_correspond_initially  : steps == 0 ==> (permutations0.A_p == permutations1.A_p && permutations1.A_p == permutations2.A_p);
+
+    /* Valid for rand1 and rand2: V(Y1) and V(Y2) */
+    invariant rand_0_is_valid           : (forall (i: integer) :: i >= 0 && i < N ==> (rand0[i] >= i && rand0[i] < N));
+    invariant rand_1_is_valid           : (forall (i: integer) :: i >= 0 && i < N ==> (rand1[i] >= i && rand1[i] < N));
+    invariant rand_2_is_valid           : (forall (i: integer) :: i >= 0 && i < N ==> (rand2[i] >= i && rand2[i] < N));
+
+    /* rand1 != rand2: Y1 != Y2 */
+    invariant same_before_dif_ind1      : (forall (i: integer) :: i >= 0 && i < dif_ind1 ==> (rand1[i] == rand0[i]));
+    invariant same_before_dif_ind2      : (forall (i: integer) :: i >= 0 && i < dif_ind2 ==> (rand2[i] == rand0[i]));
+    invariant diff_at_dif_ind1          : (rand1[dif_ind1] != rand0[dif_ind1]);
+    invariant diff_at_dif_ind2          : (rand2[dif_ind2] != rand0[dif_ind2]);
+
+    invariant diff_ind_different        : dif_ind1 != dif_ind2;
+    invariant rands_are_different       : rand0 != rand1 && rand0 != rand2 && rand1 != rand2;
+    
+    /* Delta(j,k) is satisfied */
+    invariant A_p_diff_at_dif_ind1_supp : steps == dif_ind1 ==> permutations1.A_p[dif_ind1] == permutations0.A_p[dif_ind1];
+    invariant A_p_diff_at_dif_ind2_supp : steps == dif_ind2 ==> permutations2.A_p[dif_ind2] == permutations0.A_p[dif_ind2];
+    invariant A_p_diff_1                : steps > 0 && old(steps) >= dif_ind1 ==> permutations1.A_p != permutations0.A_p;
+    invariant A_p_diff_2                : steps > 0 && old(steps) >= dif_ind2 ==> permutations2.A_p != permutations0.A_p;
+
+    invariant A_p_diff                  : steps > 0 && old(steps) >= dif_ind1 && old(steps) >= dif_ind2 ==> permutations2.A_p != permutations1.A_p;
+    
+    /* smoke test */
+    // invariant bogus                     : false; 
+
+    control {
+        f = verify(update_swap_variables);
+        check;
+        print_results;
+
+        clear_context;
+        
+        set_solver_option(":mbqi", false);
+        v = induction(1);
+        check;
+        print_results;
+        v.print_cex();
+    }
+}
