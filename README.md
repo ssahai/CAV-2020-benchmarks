@@ -171,3 +171,45 @@ We present the overview of experimental results here. We refer the reader to the
 The experiments were conducted on an Intel(R) Core(TM) i7-4770U CPU @ 3.40GHz with 8 cores and 32 GB of RAM.
 
 
+## 4. Docker Image
+
+For ease of testing and experimenting we provide [here](https://cse.iitk.ac.in/users/ssahai/artifacts/hyperproperty.tar) a docker image contating the above models as well. Please follow the instructions below to reproduce the experimental results using docker.
+
+
+### 4.1 Host Platform:
+
+The image boots with the Ubuntu 18.04 as the underlying operating system and contains the `uclid5` binary and corresponding dependencies pre-installed. 
+It also contains models for all the benchmarks in the Artifacts folder, which we will dicuss in the folder structure section.
+
+The host platform details for preparing and testing the docker image is as follows:
+
+- __OS__&nbsp;&nbsp;&nbsp;&nbsp;    : Ubuntu 18.04 LTS
+- __Arch__&nbsp;&nbsp; : x86_64 
+- __RAM__  &nbsp; : 32GB
+- __CPU__ &nbsp;  : Intel(R) Core(TM) i7-4770 CPU @ 3.40GHz
+- __Cores__ : 8
+
+### 4.2 Booting the image:
+
+1. Download the tar file of the image from [this link](https://cse.iitk.ac.in/users/ssahai/artifacts/hyperproperty.tar).
+2. Ensure that the testing environment has docker installed. 
+3. Then load the image using: `docker load -i hyperproperty.tar`
+4. To run the image use: `docker run --rm -ti ssahai/ae:1.0 /bin/bash`
+
+### 4.3 Folder organization:
+
+The artifacts are present in the home folder of the container: `/root/Artifacts`. The folder contains the following items:
+
+1. __Models__ - This folder contains the models of all the benchmarks in their respective folder.
+2. __deniability.pdf__ - The pdf file of the paper. However, we recommend the following [link](https://arxiv.org/abs/2005.04606) for the most updated version of the paper.
+3. __README.pdf__ - The readme file with general description and desribing the details for running the experiments. _(It's the pdf version of the readme you are reading right now!)_
+4. __generate_statistics.sh__ - A bash script to generate the final experimental statistics.
+
+For quick evaluation just execute the bash file: `./generate_statistics.sh`
+
+For individual benchmark and other details, follow the instructions above.
+
+
+__REMARK:__ _We would like to make a note that the timings of the above experiments might depend on the resources allocated to the docker container. Please refer the [docker documentation](https://docs.docker.com/config/containers/resource_constraints/) for setting the resouces via runtime options._
+
+
