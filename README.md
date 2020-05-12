@@ -1,7 +1,9 @@
 # CAV 2020 - Experimental Results
 This repository contains the benchmarks and results for the CAV 2020 paper titled _"Verification of Quantitative Hyperproperties Using Trace Enumeration Relations"_
 
-The models and the proof scripts are implemented in [Uclid5](https://github.com/uclid-org/uclid). This docker image contains the latest release of Uclid from [the github repository](https://github.com/uclid-org/uclid).
+The models and the proof scripts are implemented in [Uclid5](https://github.com/uclid-org/uclid). Please refer to [this repository](https://github.com/uclid-org/uclid) for installation instructions and setting up the environment. 
+
+Make sure that uclid5 is installed successfully before continuing. 
 
 To test the environment type ```uclid``` on terminal that should produce the following output:
 
